@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# macOS
+.DS_Store
+
+# tts-pipeline 各数据源的项目配置(含本地绝对路径,不入库),只保留示例
+tts-pipeline/projects/*.json
+!tts-pipeline/projects/example.json

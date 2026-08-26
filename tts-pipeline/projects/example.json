@@ -1,0 +1,45 @@
+{
+  "name": "example",
+  "src_dir": "/path/to/source/audio",
+  "out_root": "/path/to/output/example-tts",
+  "speaker_tag": "example",
+  "seg_prefix": "ex",
+  "file_glob": ["*.wav", "*.mp3", "*.m4a"],
+  "idx_mode": "sequential",
+  "episode_order": null,
+  "llm_audit_speaker_desc": "单说话人男声讲课",
+  "cut": {
+    "edge_pad": 0.20,
+    "max_gap": 1.20,
+    "gap_pass_ratio": 0.3,
+    "min_dur": 5.0,
+    "max_dur": 28.0,
+    "xfade": 0.02,
+    "energy_floor_db": -42.0,
+    "energy_search_s": 0.80,
+    "energy_pad_s": 0.08,
+    "min_tail_sil": 0.30
+  },
+  "qa": {
+    "fixed_gap_th": 1.50
+  },
+  "stage1": {
+    "sr": 44100,
+    "vad_sr": 16000,
+    "split_gap": 0.80,
+    "min_seg": 1.0,
+    "max_seg": 18.0,
+    "spk_dist": 0.60,
+    "bsr_model": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+    "asr_batch": 32
+  },
+  "merge_review": {
+    "max_gap": 2.5,
+    "max_dur": 30.0
+  },
+  "loudnorm": {
+    "target_db": null,
+    "utt_pass_ratio": null,
+    "peak_ceiling_db": -1.0
+  }
+}
