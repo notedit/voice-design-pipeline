@@ -22,6 +22,7 @@ import numpy as np
 import soundfile as sf
 
 from .config import ProjectConfig
+from .provenance import dataset_fingerprint, require_fresh
 
 FRAME = 0.02  # 20ms 能量帧,与 silence_qa/响度分析口径一致
 
@@ -165,6 +166,9 @@ def verify(x, sr, items, cut_cfg, pc_cfg):
 
 def run(cfg: ProjectConfig, apply: bool = False):
     pc, cc = cfg.para_cut, cfg.cut
+    require_fresh(cfg.out_path, "align",
+                  {"dataset": dataset_fingerprint(cfg.dataset_dir)},
+                  consumer="remove-nonspeech")
     aligns = {}
     for line in open(cfg.alignments_path, encoding="utf-8"):
         d = json.loads(line)

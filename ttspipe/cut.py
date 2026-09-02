@@ -29,12 +29,13 @@ import numpy as np
 import soundfile as sf
 
 from .config import ProjectConfig
+from .provenance import files_hash, stamp
 
 XFADE_S = 0.02
 _FRAME_S = 0.02
 
 # 半角+全角都要收全,见模块 docstring 第 1 点。
-TERMINAL = set("。！？；：、!?;:,~—…")
+TERMINAL = set("。！？；：、，!?;:,~—…")   # 全角逗号"，"曾漏掉,测试抓出的双标点 bug
 
 
 def energy_trim_end(audio, t_end, sr, floor_db, search_s, pad_s):
@@ -181,6 +182,8 @@ def run(cfg: ProjectConfig):
     # alignments.jsonl 若保留,align 的断点续跑会按 id 跳过、留下指向
     # 旧音频的过期对齐,下游 punct_fix/silence_qa 会拿错数据。
     cfg.alignments_path.unlink(missing_ok=True)
+    for bak in ("metadata_prepunct.csv", "filelist_prepunct.txt"):
+        (cfg.dataset_dir / bak).unlink(missing_ok=True)   # 同理:属于旧 dataset
 
     reports = [json.load(open(p))
                for p in sorted(cfg.reports_dir.glob("report_*.json"))]
@@ -188,6 +191,7 @@ def run(cfg: ProjectConfig):
 
     meta_rows, filelist_rows, stats = [], [], []
     all_durs = []
+    manifest = {}   # sid -> 来源(集号/组序号/源段 i/源时间范围),下游按构造对应,不猜
     for ep in reports:
         idx = ep["episode"]
         segs = {s["i"]: s for s in ep["segments"] if s["kept"]}
@@ -201,7 +205,7 @@ def run(cfg: ProjectConfig):
         total_len = len(audio) / sr
         n = dropped = 0
         exported = []
-        for g in groups:
+        for gid, g in enumerate(groups):
             members = [(segs[i]["start"], segs[i]["end"]) for i in g]
             texts = [segs[i]["text"] for i in g]
             s0 = max(0.0, members[0][0] - cut_cfg.edge_pad)
@@ -211,7 +215,8 @@ def run(cfg: ProjectConfig):
             if dur < cut_cfg.min_dur or dur > cut_cfg.max_dur:
                 dropped += 1
                 continue
-            exported.append(dict(members=members, texts=texts, s0=s0, e_last=e_last))
+            exported.append(dict(members=members, texts=texts, s0=s0, e_last=e_last,
+                                 gid=gid, segs=list(g)))
 
         # 相邻两组原始间隙若小于 2*edge_pad,首尾 pad 会互相咬到对方的真实
         # 内容;按真实边界的中点裁开,保证谁的 pad 都不会越界。
@@ -237,6 +242,9 @@ def run(cfg: ProjectConfig):
             seg_id = f"{cfg.seg_prefix}{idx}_{n:04d}"
             sf.write(cfg.wavs_dir / f"{seg_id}.wav", chunk, sr, subtype="PCM_16")
             text = join_texts(item["texts"])
+            manifest[seg_id] = dict(episode=idx, gid=item["gid"], segs=item["segs"],
+                                    src_start=round(item["s0"], 3),
+                                    src_end=round(item["e_last"], 3))
             meta_rows.append(f"{seg_id}|{text}")
             filelist_rows.append(f"wavs/{seg_id}.wav|{cfg.speaker_tag}|ZH|{text}")
             all_durs.append(dur)
@@ -249,6 +257,11 @@ def run(cfg: ProjectConfig):
 
     (cfg.dataset_dir / "metadata.csv").write_text("\n".join(meta_rows) + "\n", encoding="utf-8")
     (cfg.dataset_dir / "filelist.txt").write_text("\n".join(filelist_rows) + "\n", encoding="utf-8")
+    json.dump(manifest, open(cfg.dataset_dir / "manifest.json", "w", encoding="utf-8"),
+              ensure_ascii=False, indent=1)
+    stamp(cfg.out_path, "export",
+          {"merge": files_hash(cfg.merge_dir.glob("groups_*.json")),
+           "reports": files_hash(cfg.reports_dir.glob("report_*.json"))}, cut_cfg)
 
     d = np.array(all_durs)
     hist = {f"{lo}-{hi}s": int(((d >= lo) & (d < hi)).sum())

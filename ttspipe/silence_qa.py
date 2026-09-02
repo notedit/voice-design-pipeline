@@ -27,6 +27,7 @@ import numpy as np
 import soundfile as sf
 
 from .config import ProjectConfig, load_project
+from .provenance import dataset_fingerprint, require_fresh
 
 MID = set("，,、；;：:—")
 FIN = set("。！？!?…~～.")
@@ -163,6 +164,9 @@ def apply_removal(dataset_dir: Path, flagged: dict, speaker_tag: str):
 
 
 def run(cfg: ProjectConfig, dataset_dir: Path = None, apply: bool = False):
+    require_fresh(cfg.out_path, "align",
+                  {"dataset": dataset_fingerprint(dataset_dir or cfg.dataset_dir)},
+                  consumer="qa-silence")
     dataset_dir = dataset_dir or cfg.dataset_dir
     aligns = load_alignments(cfg)
     rows = analyze(dataset_dir, aligns)

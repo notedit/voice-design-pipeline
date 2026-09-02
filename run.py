@@ -2,6 +2,8 @@
 """统一入口:python run.py <stage> <project> [参数...]
 
 stage(括号内为兼容的旧名):
+  doctor           [project]  环境自检:依赖/CUDA/侧车 venv,给项目时再做
+                   60s BS-RoFormer 分离冒烟(人声轨必须有能量)
   extract          分离BGM+VAD+锁定目标说话人+转写(重,GPU),
                    写 work/reports/report_XXX.json(旧名 stage1)
   group            report -> 归组输入 + 贪心归组基线(旧名 merge-prep)
@@ -46,7 +48,7 @@ from ttspipe.config import list_projects, load_project  # noqa: E402
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    STAGES = ["extract", "group", "group-llm", "group-apply", "export",
+    STAGES = ["doctor", "extract", "group", "group-llm", "group-apply", "export",
               "align", "fix-punct", "fix-tail-punct", "remove-nonspeech",
               "qa-silence", "qa-speaker", "denoise", "loudnorm", "qa-llm", "qa-prosody", "all"]
     LEGACY = {"stage1": "extract", "merge-prep": "group",
@@ -56,15 +58,22 @@ def main():
               "silence-qa": "qa-silence", "llm-audit": "qa-llm",
               "prosody": "qa-prosody"}
     ap.add_argument("stage", choices=STAGES + sorted(LEGACY))
-    ap.add_argument("project", help=f"projects/<name>.json,可用: {list_projects()}")
+    ap.add_argument("project", nargs="?", default=None,
+                    help=f"projects/<name>.json,可用: {list_projects()}(doctor 可省略)")
     ap.add_argument("rest", nargs="*", help="各 stage 的额外参数,见上面用法说明")
     ap.add_argument("--apply", action="store_true",
                     help="silence-qa:剔除被标记的条目;loudnorm:就地改写 wav;"
                          "prosody:剔除语速过快的条目(默认只出报告不剔除)")
     args = ap.parse_args()
 
-    cfg = load_project(args.project)
     args.stage = LEGACY.get(args.stage, args.stage)
+    if args.stage == "doctor":
+        from ttspipe import doctor
+        doctor.run(load_project(args.project) if args.project else None)
+        return
+    if not args.project:
+        ap.error("除 doctor 外都需要指定 project")
+    cfg = load_project(args.project)
 
     if args.stage == "extract":
         from ttspipe import stage1

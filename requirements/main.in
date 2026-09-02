@@ -1,0 +1,17 @@
+# 主流水线(.venv):extract ~ qa-speaker 全流程依赖。锁文件 main.lock.txt 由
+#   uv pip freeze --python .venv/bin/python > requirements/main.lock.txt
+# 生成;严禁往这个 venv 装 clearvoice/funasr(见 AGENTS.md 环境章节)。
+torch
+torchaudio
+silero-vad
+speechbrain
+audio-separator
+qwen-asr
+librosa
+soundfile
+pyworld
+scikit-learn
+onnxruntime
+audioread
+setuptools<81
+pytest

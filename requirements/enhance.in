@@ -1,0 +1,6 @@
+# 增强侧车(.venv-enhance):denoise 阶段(clearvoice)+ SenseVoice 实验(funasr)。
+# 与主 venv 隔离的原因:这两个包会降级 numpy/torchaudio,曾把 BS-RoFormer 分离静默弄坏。
+clearvoice
+funasr
+speechbrain
+setuptools<81

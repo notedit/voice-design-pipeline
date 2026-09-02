@@ -10,18 +10,19 @@
 条目视为转写异常,保留旧文本不做校正。
 旧版备份:metadata_prepunct.csv / filelist_prepunct.txt
 
-已知限制(有意不修,详见 README):文本匹配是逐字符顺序指针walk,没有
-重新同步能力——新旧文本在靠前的位置一旦有一处标点/字符对不上,后面
-全部错位,覆盖率跌破 80% 阈值,整条退回旧文本不做任何校正。长句(20s+)
-+ 口语化内容(重复、自我修正)命中率明显更高:kuaidao 348 条里 191 条因
-此没被校正(kept_old),而不是文本对不上导致的转写失败。修这个需要换成
-真正的 diff/对齐算法,而不是指针 walk——留作后续工作,不在这次重构范围内,
-因为修复会改变所有项目的输出,不是纯粹的模块化。
+文本 <-> 时间戳的匹配用 textalign.match_chars(difflib,可重新同步):旧的
+逐字符指针 walk 遇到多字符 token(英文/数字)或规范化差异就整条错位,
+覆盖率跌破 80% 后退回旧文本——kuaidao 一度 37% 条目因此没被校正。换成
+diff 对齐后覆盖率阈值(0.8)不变,只是能对上的条目多了。
+文本权威:能对上的条目一律采用 align 阶段对整条音频的重新转写(有完整
+上下文),旧的段级拼接文本只用于相似度守门。
 """
 import difflib
 import json
 
 from .config import ProjectConfig
+from .provenance import dataset_fingerprint, require_fresh
+from .textalign import match_chars
 
 MID = set("，,、；;：:—")
 FIN = set("。！？!?…~～.")
@@ -38,6 +39,8 @@ def run(cfg: ProjectConfig):
     old_meta = dict(l.split("|", 1) for l in
                     open(dataset_dir / "metadata.csv").read().strip().split("\n"))
 
+    require_fresh(cfg.out_path, "align",
+                  {"dataset": dataset_fingerprint(dataset_dir)}, consumer="fix-punct")
     aligns = {}
     for line in open(cfg.alignments_path, encoding="utf-8"):
         d = json.loads(line)
@@ -59,16 +62,9 @@ def run(cfg: ProjectConfig):
             new_meta[sid] = old_text
             n_lowsim += 1
             continue
-        # 对齐匹配(逐字符顺序指针,见模块 docstring 的已知限制)
-        ptr = 0
-        seq = []
-        for ch in text:
-            if ptr < len(items) and items[ptr][0] == ch:
-                seq.append((ch, items[ptr]))
-                ptr += 1
-            else:
-                seq.append((ch, None))
-        if ptr < len(items) * 0.8:
+        # difflib 对齐(可重新同步),覆盖率 <0.8 仍视为对不上,退回旧文本
+        seq, coverage = match_chars(text, items)
+        if coverage < 0.8:
             new_meta[sid] = old_text
             n_kept_old += 1
             continue
@@ -115,8 +111,8 @@ def run(cfg: ProjectConfig):
     for name, bak in (("metadata.csv", "metadata_prepunct.csv"),
                       ("filelist.txt", "filelist_prepunct.txt")):
         src, dst = dataset_dir / name, dataset_dir / bak
-        if src.exists() and not dst.exists():
-            src.rename(dst)
+        if src.exists():
+            src.replace(dst)   # 总是覆盖:备份必须与当前 dataset 同代
 
     meta_rows = [f"{sid}|{new_meta[sid]}" for sid in sorted(new_meta)]
     fl_rows = [f"wavs/{sid}.wav|{cfg.speaker_tag}|ZH|{new_meta[sid]}" for sid in sorted(new_meta)]

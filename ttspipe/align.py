@@ -13,6 +13,7 @@ import numpy as np
 
 from .config import ProjectConfig
 from .gpu import pick_gpu
+from .provenance import dataset_fingerprint, stamp
 
 
 def wait_for_gpu(min_free_mb=12000, poll_s=60):
@@ -95,6 +96,7 @@ def run(cfg: ProjectConfig, batch_size: int = 8):
         if (k // batch_size) % 20 == 0:
             print(f"{min(k + batch_size, len(ids))}/{len(ids)}", flush=True)
     fout.close()
+    stamp(cfg.out_path, "align", {"dataset": dataset_fingerprint(cfg.dataset_dir)})
     print("ALIGN DONE", flush=True)
 
 

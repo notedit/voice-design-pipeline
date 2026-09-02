@@ -23,8 +23,11 @@
 ## 第 0 步:环境自检(每次会话开始先做)
 
 ```bash
-<env>/bin/python -c "import torch,silero_vad,speechbrain,qwen_asr,audio_separator,librosa,soundfile,sklearn"
+.venv/bin/python run.py doctor            # 依赖/CUDA/侧车 venv
+.venv/bin/python run.py doctor <project>  # + 60s BS-RoFormer 分离冒烟(新音源必做)
+.venv/bin/python -m pytest tests -q       # 改过 ttspipe/ 后必跑,秒级
 ```
+- 环境从锁文件重建:`bash scripts/setup_env.sh`(requirements/*.lock.txt)。
 
 - extract/align 需要 GPU + 上述全部依赖;group/export/qa-silence/
   loudnorm/qa-prosody 只需 numpy/librosa/soundfile/sklearn。
@@ -256,9 +259,13 @@ para-cut/silence-qa/llm-audit/prosody)仍是有效别名,新文档一律用新�
    silence_qa 的 token 级匹配)。
 3. stage1 是一个整体(`Stage1Runner`),不要拆成独立模块——拆开每步都要
    重新加载 GB 级模型,是已经做过并否决的方案。
-4. punct_fix 的逐字符匹配是已知限制,不要顺手"修"——换算法会改变所有
-   项目输出,需单独立项验证。
-5. 验证方式是 parity test:改动后挑有产出的项目重跑该阶段,与现网产物
+4. 文本权威 = align 对整条音频的重新转写;punct_fix 用 `textalign.
+   match_chars`(difflib)对时间戳,改匹配逻辑先跑 tests 再用真项目比
+   kept_old 数字。
+5. **产物新鲜度靠 provenance 校验,不靠肉眼**:写新 stage 时,产物被下游
+   消费的要 `stamp()`,消费上游产物的要 `require_fresh()`(见
+   `ttspipe/provenance.py`);拒跑报错说明该重跑哪个 stage,照做,不要绕。
+6. 验证方式是 parity test:改动后挑有产出的项目重跑该阶段,与现网产物
    对比;预期无行为变化必须逐字节一致,预期有变化的差异必须逐条可归因。
    `select_target_cluster`(stage1.py)是纯函数,选簇逻辑的改动先用假
    向量写脚本测过再上真数据。
