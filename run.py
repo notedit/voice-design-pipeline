@@ -17,6 +17,8 @@ stage(括号内为兼容的旧名):
                    --apply 就地改写并需重跑 align(旧名 para-cut)
   qa-silence       [dataset_dir] [--apply]  静音异常检测(+ 可选剔除)
                    (旧名 silence-qa)
+  qa-speaker       [dataset_dir] [--apply]  说话人纯度验证:窗级 ECAPA
+                   相似度找混入的他人声音;--apply 仅剔除重度条目
   denoise          [dataset_dir] [--apply]  语音增强降噪(MossFormer2_SE_48K),
                    带 ECAPA 音色验收,低于阈值保留原音频
   loudnorm         [dataset_dir] [--apply]  音量归一化(项目内集级增益)
@@ -46,7 +48,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     STAGES = ["extract", "group", "group-llm", "group-apply", "export",
               "align", "fix-punct", "fix-tail-punct", "remove-nonspeech",
-              "qa-silence", "denoise", "loudnorm", "qa-llm", "qa-prosody", "all"]
+              "qa-silence", "qa-speaker", "denoise", "loudnorm", "qa-llm", "qa-prosody", "all"]
     LEGACY = {"stage1": "extract", "merge-prep": "group",
               "merge-llm": "group-llm", "merge-apply": "group-apply",
               "cut": "export", "punct-fix": "fix-punct",
@@ -104,6 +106,11 @@ def main():
         from ttspipe import silence_qa
         dataset_dir = (cfg.out_path / args.rest[0]) if args.rest else None
         silence_qa.run(cfg, dataset_dir=dataset_dir, apply=args.apply)
+
+    elif args.stage == "qa-speaker":
+        from ttspipe import speaker_qa
+        dataset_dir = (cfg.out_path / args.rest[0]) if args.rest else None
+        speaker_qa.run(cfg, dataset_dir=dataset_dir, apply=args.apply)
 
     elif args.stage == "denoise":
         from ttspipe import denoise

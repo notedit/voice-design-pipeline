@@ -73,6 +73,18 @@ class ParaCutConfig:
 
 
 @dataclass
+class SpeakerQaConfig:
+    """qa-speaker 阶段(说话人纯度验证)的参数。extract 的段级聚类拦不住
+    段内混入(主持人插话/演示音频/观众声),这里用窗级 ECAPA 相似度补网。"""
+    win_s: float = 2.0       # 窗长(1s 对 ECAPA 太短,噪声大)
+    hop_s: float = 0.5
+    low_sim: float = 0.45    # 窗相似度低于此记"低窗"
+    flag_run: int = 2        # 连续低窗数 >= 此标记(单低窗多为韵律波动)
+    severe_run: int = 4      # 连续低窗数 >= 此判重度(基本确定混入)
+    severe_min: float = 0.05  # 或窗最低相似度 <= 此判重度
+
+
+@dataclass
 class DenoiseConfig:
     """denoise 阶段(语音增强/降噪,可选后置)的参数。
     对 TTS 数据,降噪的红线是不伤音色:每条降噪前后各算 ECAPA 说话人向量,
@@ -160,6 +172,7 @@ class ProjectConfig:
     cut: CutConfig = field(default_factory=CutConfig)
     qa: QaConfig = field(default_factory=QaConfig)
     para_cut: ParaCutConfig = field(default_factory=ParaCutConfig)
+    speaker_qa: SpeakerQaConfig = field(default_factory=SpeakerQaConfig)
     denoise: DenoiseConfig = field(default_factory=DenoiseConfig)
     stage1: Stage1Config = field(default_factory=Stage1Config)
     merge_review: MergeReviewConfig = field(default_factory=MergeReviewConfig)
@@ -215,11 +228,13 @@ def load_project(name: str) -> ProjectConfig:
     cut = _dc_from_dict(CutConfig, raw.pop("cut", None))
     qa = _dc_from_dict(QaConfig, raw.pop("qa", None))
     para_cut = _dc_from_dict(ParaCutConfig, raw.pop("para_cut", None))
+    speaker_qa = _dc_from_dict(SpeakerQaConfig, raw.pop("speaker_qa", None))
     denoise = _dc_from_dict(DenoiseConfig, raw.pop("denoise", None))
     stage1 = _dc_from_dict(Stage1Config, raw.pop("stage1", None))
     merge_review = _dc_from_dict(MergeReviewConfig, raw.pop("merge_review", None))
     loudnorm = _dc_from_dict(LoudnormConfig, raw.pop("loudnorm", None))
-    return ProjectConfig(cut=cut, qa=qa, para_cut=para_cut, denoise=denoise,
+    return ProjectConfig(cut=cut, qa=qa, para_cut=para_cut,
+                         speaker_qa=speaker_qa, denoise=denoise,
                          stage1=stage1, merge_review=merge_review,
                          loudnorm=loudnorm, **raw)
 

@@ -76,7 +76,8 @@
 标准顺序:`extract -> group -> [group-llm] -> group-apply -> export ->
 align -> fix-punct -> fix-tail-punct(agent 自主,见下)->
 remove-nonspeech(agent 自主,检出即 --apply + 增量重 align)->
-qa-silence -> [denoise] -> [loudnorm] -> [qa-llm/qa-prosody]`。
+qa-silence -> qa-speaker(agent 自主跑报告)-> [denoise] -> [loudnorm] ->
+[qa-llm/qa-prosody]`。
 旧名(stage1/merge-prep/merge-llm/merge-apply/cut/punct-fix/tail-punct/
 para-cut/silence-qa/llm-audit/prosody)仍是有效别名,新文档一律用新名。
 
@@ -133,6 +134,9 @@ para-cut/silence-qa/llm-audit/prosody)仍是有效别名,新文档一律用新�
   产出时,先确认用户要覆盖。
 - 门禁:导出条数/总时长与 stage1 kept 时长量级一致(归组+时长过滤会
   损失一部分,断崖式缩水不正常);抽 3 条 wav 时长和 metadata 对得上。
+- **切完必做:给出 qa-speaker 处理意见**(判断规则见 qa-speaker 小节的
+  决策表),连同依据(各集簇数、内容类型)一起报给用户;判定"建议跑"
+  时直接自主跑报告,不等确认。
 
 ### align(强制对齐;GPU)+ fix-punct(标点校正;旧名 punct-fix)
 
@@ -188,7 +192,29 @@ para-cut/silence-qa/llm-audit/prosody)仍是有效别名,新文档一律用新�
   `utt_pass_ratio` 生效时二次 apply 不幂等,严禁重复 apply。
 - `qa.fixed_gap_th` 必须与 `cut.max_gap`/`gap_pass_ratio` 配套改。
 
-### denoise(语音增强降噪;agent 自动出建议,apply 由用户拍板)
+### qa-speaker(说话人纯度验证;agent 自主决策+跑报告,剔除需用户确认)
+
+- 背景:extract 的聚类是**段级**的,一段里混入几秒他人声音(主持人插话、
+  演示播放的音频、观众声),整段向量仍被主说话人主导而并入主簇——段级
+  和整条口径都看不出来,必须窗级检测。这是 kuaidao kd000_0001 实际踩过
+  的漏网案例。
+- **是否要跑,由 agent 在 export 完成后按此表给意见**(报告模式只依赖
+  dataset/wavs,不需要 alignments,可以立即跑):
+
+  | 信号 | 意见 |
+  |---|---|
+  | extract 有任何一集聚出 >1 簇(源里确有其他声音) | **跑**(被丢弃簇的邻接段边界大概率有沾染) |
+  | 全部单簇,但内容是讲课/对话/访谈等有互动的类型 | **跑**(kuaidao 案例证明:单簇 ≠ 纯净,段内混入会被聚类吞进主簇) |
+  | 全部单簇 + 纯朗读/有声书(录音棚单人朗读) | 可跳过;用户要求最高纯度时仍可跑 |
+
+  成本参考:GPU 上约 2-3 分钟 / 100 条,倾向跑而不是省。
+- 做法(`ttspipe/speaker_qa.py`):稳健质心 + 2s 滑窗 ECAPA 相似度;
+  连续 ≥2 个低窗(<0.45)标记;连续 ≥4 窗或最低 ≤0.05 判**重度**
+  (基本确定混入),其余**轻度**(演示音频/远场人声误报率高)。
+- agent 在 qa-silence 后自主跑报告,**必出试听复核页**(artifact:低窗
+  区间红色高亮 + 可定位播放,重度/轻度分组)。`--apply` 只剔除重度
+  (wav 移入 work/speaker_qa_removed/ 可恢复),且需用户确认;轻度
+  一律等用户听完逐条定夺。
 
 - 基于 ClearerVoice-Studio(默认 `MossFormer2_SE_48K`),跑在 dataset/wavs
   上。**报告模式由 agent 自主跑**(零改动,GPU 分钟级),跑完按下面的
