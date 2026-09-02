@@ -4,38 +4,64 @@
   "out_root": "/path/to/output/example-tts",
   "speaker_tag": "example",
   "seg_prefix": "ex",
-  "file_glob": ["*.wav", "*.mp3", "*.m4a"],
+  "file_glob": [
+    "*.wav",
+    "*.mp3",
+    "*.m4a"
+  ],
   "idx_mode": "sequential",
   "episode_order": null,
   "llm_audit_speaker_desc": "单说话人男声讲课",
   "cut": {
-    "edge_pad": 0.20,
-    "max_gap": 1.20,
+    "edge_pad": 0.2,
+    "max_gap": 1.2,
     "gap_pass_ratio": 0.3,
-    "min_dur": 5.0,
-    "max_dur": 28.0,
+    "min_dur": 3.0,
+    "max_dur": 30.0,
     "xfade": 0.02,
+    "fade_in": 0.06,
+    "fade_out": 0.06,
     "energy_floor_db": -42.0,
-    "energy_search_s": 0.80,
+    "energy_search_s": 0.8,
     "energy_pad_s": 0.08,
-    "min_tail_sil": 0.30
+    "min_tail_sil": 0.3
   },
   "qa": {
-    "fixed_gap_th": 1.50
+    "fixed_gap_th": 1.5
+  },
+  "para_cut": {
+    "min_cut": 0.15,
+    "guard": 0.08,
+    "merge_gap": 0.12,
+    "min_residual_pause": 0.25
   },
   "stage1": {
     "sr": 44100,
     "vad_sr": 16000,
-    "split_gap": 0.80,
+    "split_gap": 0.8,
     "min_seg": 1.0,
     "max_seg": 18.0,
-    "spk_dist": 0.60,
+    "spk_dist": 0.6,
     "bsr_model": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
-    "asr_batch": 32
+    "asr_batch": 32,
+    "ref_audio": null,
+    "ref_max_dist": 0.6,
+    "split_tiers": [
+      0.5,
+      0.3,
+      0.15
+    ]
   },
   "merge_review": {
     "max_gap": 2.5,
-    "max_dur": 30.0
+    "max_dur": 29.0,
+    "pref_max_dur": 20.0,
+    "pref_min_dur": 5.0,
+    "good_gap": 0.5
+  },
+  "denoise": {
+    "model": "MossFormer2_SE_48K",
+    "spk_sim_th": 0.9
   },
   "loudnorm": {
     "target_db": null,

@@ -36,6 +36,12 @@ class CutConfig:
     min_dur: float = 2.0
     max_dur: float = 30.0
     xfade: float = 0.02
+    # 导出切片的首尾淡入淡出(秒,产品默认 60ms):源有底噪时,切片边界的
+    # 硬切会产生可听的咔哒/底噪突起。头部从零平滑淡入;尾部淡出平滑到
+    # 静音(尾部若是 min_tail_sil 补出来的纯零,淡出自然落在静音上无副
+    # 作用)。0 = 关,仅用于历史项目 parity 复现。
+    fade_in: float = 0.06
+    fade_out: float = 0.06
     energy_floor_db: float = -42.0
     energy_search_s: float = 0.80
     energy_pad_s: float = 0.08
@@ -53,6 +59,28 @@ class CutConfig:
 class QaConfig:
     """silence_qa 阶段的参数,对应旧 qa_silence_outliers.py 里的常量。"""
     fixed_gap_th: float = 1.15
+
+
+@dataclass
+class ParaCutConfig:
+    """para_cut 阶段(剪除对齐 gap 内未转写声音,如笑声/语气声)的参数。
+    判定只用响度+对齐时间戳,不引入模型:gap 内能量高于 cut.energy_floor_db、
+    持续超过 min_cut 的声音视为未转写内容,在静音谷落刀剪除。"""
+    min_cut: float = 0.15            # 事件最短时长,短于此不值得剪
+    guard: float = 0.08              # 刀口距相邻对齐字边界的最小距离
+    merge_gap: float = 0.12          # 相邻事件间隔小于此合并为一刀
+    min_residual_pause: float = 0.25  # 句中剪除后残余停顿下限,不足补零
+
+
+@dataclass
+class DenoiseConfig:
+    """denoise 阶段(语音增强/降噪,可选后置)的参数。
+    对 TTS 数据,降噪的红线是不伤音色:每条降噪前后各算 ECAPA 说话人向量,
+    余弦相似度低于 spk_sim_th 的条目判"音色受损",--apply 时保留原音频并
+    记入报告,绝不静默替换。跑在 para-cut 之后(降噪会改变能量底噪,
+    para-cut 的静音谷判定要在原始响度上做)。"""
+    model: str = "MossFormer2_SE_48K"   # ClearerVoice-Studio 模型名
+    spk_sim_th: float = 0.90            # 音色保真下限,低于此不 apply
 
 
 @dataclass
@@ -82,13 +110,36 @@ class Stage1Config:
     spk_dist: float = 0.60
     bsr_model: str = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
     asr_batch: int = 32
+    # 目标说话人参考音频(该说话人几秒~几十秒的干净独白样本,wav/mp3 均可)。
+    # None = 旧行为:锁定总时长最大的簇为主说话人(适合"主播就是目标"的源)。
+    # 路径 = 用 ECAPA 向量在各簇中挑与参考余弦距离最近的簇——目标说话人
+    # 不是说话最多的人、或不同集主次说话人会换人时,必须用这个模式。
+    ref_audio: Optional[str] = None
+    # 参考模式下的距离上限:最近簇距离仍超过该值,判定"本集没有目标说话人",
+    # 整集不保留任何段(target_found=false 写进 report),宁缺毋滥。
+    ref_max_dist: float = 0.60
+    # 长段二分裂的分级候选断点(产品默认开):切 >max_seg 的段时先只考虑
+    # >=0.5s 的间隙(多为句末/分句),没有再逐级放宽,保底 0.15s(宁可断
+    # 逗号也不丢整段)。None = 旧行为:所有间隙同台竞争,仅用于复现历史
+    # 项目的 parity 验证。
+    split_tiers: Optional[list] = field(
+        default_factory=lambda: [0.5, 0.3, 0.15])
 
 
 @dataclass
 class MergeReviewConfig:
     """prep_review.py / merge_llm.py 的贪心归组参数,6 个项目里也从未变过。"""
     max_gap: float = 2.5
-    max_dur: float = 30.0
+    # 产品策略(默认):组硬上限 29s(给 cut 的 edge_pad+min_tail_sil 留
+    # ~1s 余量,导出后 <=30s),优先区间 5-20s——打包到 pref_max_dur 为止,
+    # 超出后进入 [pref_max_dur, max_dur] 弹性区,只在间隙 >= good_gap 的
+    # "好断点"(句末/分句停顿)断开;到硬上限仍没有好断点,回溯到组内最大
+    # 间隙处断(左半不短于 pref_min_dur)。pref_max_dur=None 关闭优先区间
+    # (旧行为:直接打包到 max_dur),仅用于历史项目 parity 复现。
+    max_dur: float = 29.0
+    pref_max_dur: Optional[float] = 20.0
+    pref_min_dur: float = 5.0
+    good_gap: float = 0.5
 
 
 @dataclass
@@ -108,6 +159,8 @@ class ProjectConfig:
     llm_audit_speaker_desc: str = "单说话人男声"  # 塞进 llm_audit 提示词里描述人物
     cut: CutConfig = field(default_factory=CutConfig)
     qa: QaConfig = field(default_factory=QaConfig)
+    para_cut: ParaCutConfig = field(default_factory=ParaCutConfig)
+    denoise: DenoiseConfig = field(default_factory=DenoiseConfig)
     stage1: Stage1Config = field(default_factory=Stage1Config)
     merge_review: MergeReviewConfig = field(default_factory=MergeReviewConfig)
     loudnorm: LoudnormConfig = field(default_factory=LoudnormConfig)
@@ -161,10 +214,13 @@ def load_project(name: str) -> ProjectConfig:
     raw = dict(raw)
     cut = _dc_from_dict(CutConfig, raw.pop("cut", None))
     qa = _dc_from_dict(QaConfig, raw.pop("qa", None))
+    para_cut = _dc_from_dict(ParaCutConfig, raw.pop("para_cut", None))
+    denoise = _dc_from_dict(DenoiseConfig, raw.pop("denoise", None))
     stage1 = _dc_from_dict(Stage1Config, raw.pop("stage1", None))
     merge_review = _dc_from_dict(MergeReviewConfig, raw.pop("merge_review", None))
     loudnorm = _dc_from_dict(LoudnormConfig, raw.pop("loudnorm", None))
-    return ProjectConfig(cut=cut, qa=qa, stage1=stage1, merge_review=merge_review,
+    return ProjectConfig(cut=cut, qa=qa, para_cut=para_cut, denoise=denoise,
+                         stage1=stage1, merge_review=merge_review,
                          loudnorm=loudnorm, **raw)
 
 

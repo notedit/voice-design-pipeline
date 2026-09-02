@@ -35,7 +35,9 @@ def prep_input(cfg: ProjectConfig):
 
 
 def greedy_baseline(cfg: ProjectConfig):
-    max_gap, max_dur = cfg.merge_review.max_gap, cfg.merge_review.max_dur
+    mr = cfg.merge_review
+    max_gap, max_dur = mr.max_gap, mr.max_dur
+    pref_max, pref_min, good_gap = mr.pref_max_dur, mr.pref_min_dur, mr.good_gap
     n_groups = n_multi = 0
     for f in sorted(cfg.merge_dir.glob("input_*.json")):
         idx = f.stem.split("_")[1]
@@ -43,17 +45,49 @@ def greedy_baseline(cfg: ProjectConfig):
         by_i = {r["i"]: r for r in rows}
         groups, cur = [], []
         for r in rows:
-            if cur:
-                prev = by_i[cur[-1]]
-                new_dur = r["end"] - by_i[cur[0]]["start"]
-                if prev["next_is_adjacent"] and prev["gap_to_next"] <= max_gap \
-                        and new_dur <= max_dur:
-                    cur.append(r["i"])
-                    continue
+            if not cur:
+                cur = [r["i"]]
+                continue
+            prev = by_i[cur[-1]]
+            adjacent = prev["next_is_adjacent"] and prev["gap_to_next"] <= max_gap
+            new_span = r["end"] - by_i[cur[0]]["start"]
+            if not adjacent:
                 groups.append(cur)
                 cur = [r["i"]]
-            else:
+            elif pref_max is None:
+                # 旧行为:直接打包到 max_dur
+                if new_span <= max_dur:
+                    cur.append(r["i"])
+                else:
+                    groups.append(cur)
+                    cur = [r["i"]]
+            elif new_span <= pref_max:
+                cur.append(r["i"])
+            elif (by_i[cur[-1]]["end"] - by_i[cur[0]]["start"]) >= pref_min \
+                    and prev["gap_to_next"] >= good_gap:
+                # 已到优先区间上限,当前边界是好断点(句末级停顿)→ 断开
+                groups.append(cur)
                 cur = [r["i"]]
+            elif new_span <= max_dur:
+                # 弹性区 [pref_max, max_dur]:继续吞段,等一个好断点
+                cur.append(r["i"])
+            else:
+                # 到硬上限仍无好断点:回溯到组内最大间隙断(左半 >= pref_min)
+                cands = [(by_i[cur[k]]["gap_to_next"], k)
+                         for k in range(len(cur) - 1)
+                         if by_i[cur[k]]["end"] - by_i[cur[0]]["start"] >= pref_min]
+                if cands:
+                    _, k = max(cands)
+                    groups.append(cur[:k + 1])
+                    cur = cur[k + 1:]
+                    if r["end"] - by_i[cur[0]]["start"] <= max_dur:
+                        cur.append(r["i"])
+                    else:
+                        groups.append(cur)
+                        cur = [r["i"]]
+                else:
+                    groups.append(cur)
+                    cur = [r["i"]]
         if cur:
             groups.append(cur)
         json.dump(groups, open(cfg.merge_dir / f"greedy_{idx}.json", "w"))

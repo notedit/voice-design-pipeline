@@ -78,6 +78,20 @@ def energy_trim_start(audio, t_start, sr, floor_db, search_s, pad_s):
     return max(new_start, t_start)
 
 
+def apply_edge_fades(chunk, sr, fade_in_s, fade_out_s):
+    """首尾淡入淡出(半余弦):防止在底噪上硬切出咔哒声。
+    头部从零平滑淡入;尾部淡出平滑到静音——尾部若是补零静音,淡出落在
+    零上无副作用,真正的平滑由 ensure_tail_silence 的接缝淡出保证。"""
+    chunk = np.asarray(chunk).copy()
+    n_in = min(int(fade_in_s * sr), len(chunk))
+    if n_in > 1:
+        chunk[:n_in] *= 0.5 * (1.0 - np.cos(np.pi * np.arange(n_in) / n_in))
+    n_out = min(int(fade_out_s * sr), len(chunk))
+    if n_out > 1:
+        chunk[-n_out:] *= 0.5 * (1.0 + np.cos(np.pi * np.arange(n_out) / n_out))
+    return chunk
+
+
 def ensure_tail_silence(chunk, sr, min_sil, floor_db):
     """保证 chunk 尾部有 >= min_sil 秒的静音。"静音"按响度实测(最后一个
     高于 floor_db 的 20ms 帧之后的部分),不是 VAD 声明的边界。不足时补零——
@@ -163,6 +177,10 @@ def run(cfg: ProjectConfig):
     cfg.wavs_dir.mkdir(parents=True, exist_ok=True)
     for f in cfg.wavs_dir.glob("*.wav"):
         f.unlink()
+    # 同 WAV_OUT 清空一个道理:重切后 seg_id 对应的是新音频,旧的
+    # alignments.jsonl 若保留,align 的断点续跑会按 id 跳过、留下指向
+    # 旧音频的过期对齐,下游 punct_fix/silence_qa 会拿错数据。
+    cfg.alignments_path.unlink(missing_ok=True)
 
     reports = [json.load(open(p))
                for p in sorted(cfg.reports_dir.glob("report_*.json"))]
@@ -212,6 +230,8 @@ def run(cfg: ProjectConfig):
                 chunk, padded = ensure_tail_silence(
                     chunk, sr, cut_cfg.min_tail_sil, cut_cfg.energy_floor_db)
                 n_padded += padded
+            if cut_cfg.fade_in or cut_cfg.fade_out:
+                chunk = apply_edge_fades(chunk, sr, cut_cfg.fade_in, cut_cfg.fade_out)
             dur = len(chunk) / sr
             n += 1
             seg_id = f"{cfg.seg_prefix}{idx}_{n:04d}"
